@@ -3,6 +3,8 @@ import json
 import airflow.providers.microsoft.mssql.hooks.mssql as mssql
 import pandas as pd
 import requests
+from datetime import datetime, timedelta
+from typing import Dict
 from airflow.decorators import dag, task
 from airflow.models import Variable
 from airflow.operators.python import task
@@ -209,9 +211,21 @@ def Clickup():
                     print("Error please check api")
         return list_list_details
 
+    def init_date() -> Dict[str, str]:
+        current_time = datetime.now()
+        date_to = int(current_time.timestamp()*1000)
+        time_minus_6_hours = current_time - timedelta(hours=6)
+        date_from = int(time_minus_6_hours.timestamp() * 1000)
+        return {"date_from": date_from, "date_to": date_to}
+
     def call_api_get_tasks(space_id, headers):
         list_tasks = []
-        params = {"page": 0}
+        date = init_date()
+        params = {
+            "page": 0,
+            "date_updated_gt": date["date_from"],
+            "date_updated_lt": date["date_to"]
+        }
 
         while True:
             print("Calling api CLICKUP_GET_TASKS at page: ", params["page"])
@@ -256,7 +270,7 @@ def Clickup():
         return list_tasks
 
     @task
-    def call_mutiple_process_tasks_by_list(list_tasks: list) -> list:
+    def call_mutiple_process_tasks_by_list_20(list_tasks: list) -> list:
         headers = {
             "Authorization": f"{API_TOKEN}",
             "Content-Type": "application/json",
@@ -271,7 +285,32 @@ def Clickup():
             num_cpus = multiprocessing.cpu_count()
             max_workers = num_cpus * 5
             with ThreadPoolExecutor(max_workers=max_workers) as executor: 
-                futures = [executor.submit(call_api_get_tasks, list_id, headers) for list_id in df["id"]]
+                futures = [executor.submit(call_api_get_tasks, list_id, headers) for list_id in df["id"][:20]]
+
+                for future in as_completed(futures):
+                    try:
+                        list_tasks.append(future.result())
+                    except Exception as e:
+                        print(f"Error occurred: {e}")
+
+        return list_tasks
+    @task
+    def call_mutiple_process_tasks_by_list_40(list_tasks: list) -> list:
+        headers = {
+            "Authorization": f"{API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        hook = mssql.MsSqlHook(HOOK_MSSQL)
+        sql_conn = hook.get_conn()
+        sql = "select distinct id from [3rd_clickup_list_details];"
+        df = pd.read_sql(sql, sql_conn)
+        sql_conn.close()
+
+        if len(df["id"]) > 0:
+            num_cpus = multiprocessing.cpu_count()
+            max_workers = num_cpus * 5
+            with ThreadPoolExecutor(max_workers=max_workers) as executor: 
+                futures = [executor.submit(call_api_get_tasks, list_id, headers) for list_id in df["id"][20:]]
 
                 for future in as_completed(futures):
                     try:
@@ -313,7 +352,7 @@ def Clickup():
         list_task_details = []
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
-        sql = "select id from [3rd_clickup_tasks] order by dtm_Creation_Date desc;"
+        sql = "select id from [3rd_clickup_tasks] where dtm_Creation_Date >= DATEADD(hour, -1, GETDATE()) order by dtm_Creation_Date desc;"
         df = pd.read_sql(sql, sql_conn)
         sql_conn.close()
 
@@ -340,7 +379,7 @@ def Clickup():
         list_task_details = []
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
-        sql = "select id from [3rd_clickup_tasks] order by dtm_Creation_Date desc;"
+        sql = "select id from [3rd_clickup_tasks] where dtm_Creation_Date >= DATEADD(hour, -1, GETDATE()) order by dtm_Creation_Date desc;"
         df = pd.read_sql(sql, sql_conn)
         sql_conn.close()
 
@@ -1131,8 +1170,9 @@ def Clickup():
     insert_list_details_task = insert_list_details(list_list_details_task)
 
     list_tasks = call_mutiple_process_tasks() 
-    list_tasks_ = call_mutiple_process_tasks_by_list(list_tasks)
-    insert_tasks_task = insert_tasks(list_tasks_)
+    list_tasks_20 = call_mutiple_process_tasks_by_list_20(list_tasks)
+    list_tasks_40 = call_mutiple_process_tasks_by_list_40(list_tasks_20)
+    insert_tasks_task = insert_tasks(list_tasks_40)
 
     list_task_details_task_0 = call_mutiple_process_task_details_0()
     insert_task_details_task_0 = insert_task_details(list_task_details_task_0)
@@ -1144,6 +1184,7 @@ def Clickup():
     insert_custom_fields_task = insert_custom_fields(list_custom_fields_task)
 
     # list_folder_details_task = call_api_get_folder_details()
-    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task >> list_tasks >> list_tasks_ >> insert_tasks_task >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task
+    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task >> list_tasks >> list_tasks >> list_tasks_20 >> list_tasks_40 >> insert_tasks_task >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task
+
 
 dag = Clickup()
