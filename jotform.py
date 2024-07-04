@@ -153,7 +153,7 @@ def Jotform():
         cursor = sql_conn.cursor()
         if submissions.get('content') is not None and (isinstance(submissions.get('content'), list)):
             df = pd.DataFrame(submissions.get('content'))
-            sql_del = f"delete from [dbo].[3rd_fillout_form_metadata] where id in {tuple(df['id'].tolist())};"
+            sql_del = f"delete from [dbo].[3rd_jotform_form_submissions] where id in {tuple(df['id'].tolist())};"
             cursor.execute(sql_del)
             sql_conn.commit()
             values = []

@@ -214,7 +214,7 @@ def Clickup():
     def init_date() -> Dict[str, str]:
         current_time = datetime.now()
         date_to = int(current_time.timestamp()*1000)
-        time_minus_6_hours = current_time - timedelta(hours=6)
+        time_minus_6_hours = current_time - timedelta(hours=24)
         date_from = int(time_minus_6_hours.timestamp() * 1000)
         return {"date_from": date_from, "date_to": date_to}
 
@@ -1184,7 +1184,7 @@ def Clickup():
     insert_custom_fields_task = insert_custom_fields(list_custom_fields_task)
 
     # list_folder_details_task = call_api_get_folder_details()
-    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task >> list_tasks >> list_tasks >> list_tasks_20 >> list_tasks_40 >> insert_tasks_task >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task
+    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task  >> list_tasks >> list_tasks_20 >> list_tasks_40 >> insert_tasks_task >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task
 
 
 dag = Clickup()
