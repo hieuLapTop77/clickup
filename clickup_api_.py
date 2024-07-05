@@ -214,8 +214,8 @@ def Clickup():
     def init_date() -> Dict[str, str]:
         current_time = datetime.now()
         date_to = int(current_time.timestamp()*1000)
-        time_minus_6_hours = current_time - timedelta(hours=24)
-        date_from = int(time_minus_6_hours.timestamp() * 1000)
+        time_minus_24_hours = current_time - timedelta(hours=24)
+        date_from = int(time_minus_24_hours.timestamp() * 1000)
         return {"date_from": date_from, "date_to": date_to}
 
     def call_api_get_tasks(space_id, headers):

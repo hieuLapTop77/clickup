@@ -57,9 +57,10 @@ def Misa_group_products():
         cursor = sql_conn.cursor()
 
         df = pd.read_excel(local_file, index_col=None, engine='openpyxl')
-        sql_del = f"delete from [dbo].[3rd_misa_group_products] where [Mã hàng hóa] in {tuple(df['MÃ HÀNG HOÁ'].tolist())};"
-        print(sql_del)
-        cursor.execute(sql_del)
+        for i in range(0,len(df['MÃ HÀNG HOÁ'].tolist()),50):
+            sql_del = f"delete from [dbo].[3rd_misa_group_products] where [Mã hàng hóa] in {tuple(df['MÃ HÀNG HOÁ'][i:i+50].tolist())};"
+            print(sql_del)
+            cursor.execute(sql_del)
         values = []
         if len(df) > 0:
             sql = """
