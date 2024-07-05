@@ -1,19 +1,13 @@
-import json
 import os
 import airflow.providers.microsoft.mssql.hooks.mssql as mssql
 import pandas as pd
-import requests
 from airflow.decorators import dag, task
 from airflow.models import Variable
 from airflow.operators.python import task
 from airflow.utils.dates import days_ago
-
+import glob
+from common.utils import download_file_drive
 # Variables
-## MISA
-API_KEY = Variable.get("api_key")
-FOLDER_ID = Variable.get("folder_id")
-URL_DRIVER_REQUESTS = Variable.get("url_driver_requests")
-URL_DRIVER_DOWNLOAD = Variable.get("url_driver_download")
 
 ## Local path
 TEMP_PATH = Variable.get("temp_path")
@@ -32,39 +26,28 @@ default_args = {
 
 @dag(
     default_args=default_args,
-    schedule_interval="0 */2 * * *",
+    schedule_interval="30 * * * *",
     start_date=days_ago(1),
     catchup=False,
-    tags=["Clickup"],
+    tags=["Misa", "sales details"],
     max_active_runs=1,
 )
 def Misa_sales_details():
+    @task
+    def remove_files():
+        files = glob.glob(os.path.join(TEMP_PATH, '*'))
+        for i in files:
+            try:
+                os.remove(i)
+                print(f"Deleted file: {i}")
+            except Exception as e:
+                print(f"Error deleting file {i} : {e}")
     ######################################### API ################################################
     @task
     def download_latest_file() -> str:
-        url = URL_DRIVER_REQUESTS.format(FOLDER_ID, API_KEY)
-        response = requests.get(url)
-
-        response.raise_for_status()
-        
-        files = response.json().get('files', [])
-        
-        if not files:
-            print('No files found.')
-            return
-        latest_file = files[0]
-        file_id = latest_file['id']
-        file_name = latest_file['name']
-        
-        # URL để tải xuống tệp
-        download_url = URL_DRIVER_DOWNLOAD.format(file_id, API_KEY)
-        download_response = requests.get(download_url)
-        download_response.raise_for_status()
-        file_local = TEMP_PATH + file_name
-        with open(file_local, 'wb') as f:
-            f.write(download_response.content)
-        print(f"Downloaded {file_name}")
-        return file_local
+        folder_name = 'sochitietbanhang'
+        folder_id = Variable.get("folder_id_sochitietbanhang")
+        return download_file_drive(folder_name=folder_name, folder_id=folder_id)
 
     ######################################### INSERT DATA ################################################
     @task
@@ -75,7 +58,7 @@ def Misa_sales_details():
         # sql_del = "delete from [dbo].[3rd_misa_sales_details_v1] where ;"
         # cursor.execute(sql_del)
 
-        df = pd.read_excel(file_local, skiprows=3, index_col=None, engine='openpyxl')
+        df = pd.read_excel(file_local, skiprows=3, index_col=None, engine='openpyxl', skipfooter=1)
         sql_del = f"delete from [dbo].[3rd_misa_sales_details_v1] where NgayChungTu >= '{df['Ngày chứng từ'].min()}' and NgayChungTu <= '{df['Ngày chứng từ'].max()}';"
         print(sql_del)
         cursor.execute(sql_del)
@@ -147,7 +130,8 @@ def Misa_sales_details():
     ############ DAG FLOW ############
 
     local_file = download_latest_file()
-    insert_sales_details(local_file)
+    insert_task = insert_sales_details(local_file)
+    remove_files() >> local_file >> insert_task
 
 
 dag = Misa_sales_details()
