@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timedelta
+from typing import Union
 
 import airflow.providers.microsoft.mssql.hooks.mssql as mssql
 import pandas as pd
@@ -17,7 +19,8 @@ from airflow.utils.dates import days_ago
 
 JOTFORM_GET_USER_FORMS = Variable.get("jotform_get_user_forms")
 JOTFORM_GET_USER_SUBMISSIONS = Variable.get("jotform_get_user_submissions")
-JOTFORM_GET_FORM_BY_ID_QUESTIONS = Variable.get("jotform_get_form_by_id_questions")
+JOTFORM_GET_FORM_BY_ID_QUESTIONS = Variable.get(
+    "jotform_get_form_by_id_questions")
 
 # JOTFORM_GET_FORM_BY_ID = Variable.get("jotform_get_form_by_id")
 # JOTFORM_GET_FORM_BY_ID_QUESTIONS_BY_QID = Variable.get("jotform_get_form_by_id_questions_by_qid")
@@ -53,7 +56,7 @@ default_args = {
 
 @dag(
     default_args=default_args,
-    schedule_interval="0 */2 * * *",
+    schedule_interval="*/2 * * * *",
     start_date=days_ago(1),
     catchup=False,
     tags=["Jotform"],
@@ -77,21 +80,25 @@ def Jotform():
         return forms
 
     @task
-    def call_api_get_user_submissions() -> list:
+    def call_api_get_user_submissions() -> Union[pd.DataFrame, None]:
         params = {
             "apiKey": JOTFORM_API_KEY,
+            "orderby": "created_at",
             "limit": 1000
         }
-        submissions = None
+        filtered_df = None
         response = requests.get(
             JOTFORM_GET_USER_SUBMISSIONS, params=params, timeout=None
         )
-        print(response.json())
         if response.status_code == 200:
-            submissions = response.json()
+            df = pd.DataFrame(response.json()['content'])
+            df['created_at'] = pd.to_datetime(df['created_at'])
+            yesterday = pd.to_datetime(
+                datetime.today().strftime('%Y-%m-%d')) - timedelta(days=1)
+            filtered_df = df[df['created_at'].dt.date >= yesterday.date()]
         else:
             print("Error please check api")
-        return submissions
+        return filtered_df
 
     @task
     def insert_forms(forms) -> None:
@@ -147,17 +154,55 @@ def Jotform():
             print("Response not correct format: ", forms)
 
     @task
-    def insert_form_submissions(submissions) -> None:
+    def insert_form_submissions(df) -> None:
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
         cursor = sql_conn.cursor()
-        if submissions.get('content') is not None and (isinstance(submissions.get('content'), list)):
-            df = pd.DataFrame(submissions.get('content'))
+        # print(df)
+        if df is not None:
             sql_del = f"delete from [dbo].[3rd_jotform_form_submissions] where id in {tuple(df['id'].tolist())};"
+            print(sql_del)
             cursor.execute(sql_del)
             sql_conn.commit()
             values = []
             df["answers"] = df["answers"].apply(lambda x: json.dumps(x))
+            rows = []
+            answers = []
+            for i in range(len(df)):
+                print(df["id"][0])
+                base_row = {
+                    'id': df["id"][i],
+                    'form_id': df["form_id"][i],
+                    'ip': df["ip"][i],
+                    'created_at': df["created_at"][i],
+                    'status': df["status"][i],
+                    'new': df["new"][i],
+                    'flag': df["flag"][i],
+                    'notes': df["notes"][i],
+                    'answer': df["answers"][i],
+                    'updated_at': df["updated_at"][i]
+                }
+                answers = json.loads(df["answers"][i])
+                for _key, value in answers.items():
+                    text = value.get("text", '')
+                    answer = value.get("answer", '')
+                    if text != 'Order Form' and text != 'Gửi Order' and text != 'Thêm' and text != '':
+                        base_row[text] = answer
+                rows.append(base_row)
+            df_ = pd.DataFrame(rows)
+            print(df_.columns.tolist())
+            col = ['id', 'form_id', 'ip', 'created_at', 'status',
+                   'new', 'flag', 'notes', 'answer', 'updated_at',
+                   'Loại đơn hàng', 'Tên sản phẩm 1', 'Tên sản phẩm 2',
+                   'Tên sản phẩm 3', 'Tên sản phẩm 4', 'Tên sản phẩm 5',
+                   'Tên sản phẩm 6', 'Tên sản phẩm 7', 'Tên sản phẩm 8',
+                   'Tên sản phẩm 9', 'Tên sản phẩm 10', 'Số lượng sản phẩm 1',
+                   'Số lượng sản phẩm 2', 'Số lượng sản phẩm 3', 'Số lượng sản phẩm 4',
+                   'Số lượng sản phẩm 5', 'Số lượng sản phẩm 6', 'Số lượng sản phẩm 7',
+                   'Số lượng sản phẩm 8', 'Số lượng sản phẩm 9', 'Số lượng sản phẩm 10',
+                   'Loại khách hàng', 'Địa chỉ', 'Tên cửa hàng, doanh nghiệp', 'Tên người liên lạc - khách hàng', 'Số điện thoại', 'Ghi chú', 'Tên khách hàng']
+            df_ = df_[col]
+            # df_.to_csv(TEMP_PATH + 'test.csv')
             sql = """
                     INSERT INTO [dbo].[3rd_jotform_form_submissions](
                         [id]
@@ -168,12 +213,42 @@ def Jotform():
                         ,[new]
                         ,[flag]
                         ,[notes]
+                        ,[answer]
                         ,[updated_at]
-                        ,[answers]
+                        ,[Loai_don_hang]
+                        ,[Ten_SP_1]
+                        ,[Ten_SP_2]
+                        ,[Ten_SP_3]
+                        ,[Ten_SP_4]
+                        ,[Ten_SP_5]
+                        ,[Ten_SP_6]
+                        ,[Ten_SP_7]
+                        ,[Ten_SP_8]
+                        ,[Ten_SP_9]
+                        ,[Ten_SP_10]
+                        ,[SL_1]
+                        ,[SL_2]
+                        ,[SL_3]
+                        ,[SL_4]
+                        ,[SL_5]
+                        ,[SL_6]
+                        ,[SL_7]
+                        ,[SL_8]
+                        ,[SL_9]
+                        ,[SL_10]
+                        ,[loai_khach_hang]
+                        ,[address]
+                        ,[Ten_cua_hang]
+                        ,[Ten_nguoi_lien_lac]
+                        ,[phone]
+                        ,[ghi_chu]
+                        ,[customer_name]
                         ,[dtm_Creation_Date])
-                    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, getdate())
+                    VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,getdate())
                 """
-            for _index, row in df.iterrows():
+            for _index, row in df_.iterrows():
                 value = (
                     str(row[0]),
                     str(row[1]),
@@ -185,22 +260,49 @@ def Jotform():
                     str(row[7]),
                     str(row[8]),
                     str(row[9]),
-
+                    str(row[10]),
+                    str(row[11]),
+                    str(row[12]),
+                    str(row[13]),
+                    str(row[14]),
+                    str(row[15]),
+                    str(row[16]),
+                    str(row[17]),
+                    str(row[18]),
+                    str(row[19]),
+                    str(row[20]),
+                    str(row[21]),
+                    str(row[22]),
+                    str(row[23]),
+                    str(row[24]),
+                    str(row[25]),
+                    str(row[26]),
+                    str(row[27]),
+                    str(row[28]),
+                    str(row[29]),
+                    str(row[30]),
+                    str(row[31]),
+                    str(row[32]),
+                    str(row[33]),
+                    str(row[34]),
+                    str(row[35]),
+                    str(row[36]),
+                    str(row[37]),
                 )
                 values.append(value)
+            # print(values[0])
             cursor.executemany(sql, values)
         print(
             f"Inserted {len(values)} rows in database with {df.shape[0]} rows")
         sql_conn.commit()
         sql_conn.close()
 
-
     ############ DAG FLOW ############
     forms = call_api_get_user_forms()
     insert_forms_task = insert_forms(forms)
     submissions = call_api_get_user_submissions()
     insert_form_metadata_task = insert_form_submissions(submissions)
-    insert_forms_task >> submissions >> insert_form_metadata_task 
+    insert_forms_task >> submissions >> insert_form_metadata_task
 
 
 dag = Jotform()

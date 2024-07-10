@@ -1,16 +1,18 @@
 import json
-
-import airflow.providers.microsoft.mssql.hooks.mssql as mssql
-import pandas as pd
-import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Dict
+
+import airflow.providers.microsoft.mssql.hooks.mssql as mssql
+import billiard as multiprocessing
+import pandas as pd
+import requests
 from airflow.decorators import dag, task
 from airflow.models import Variable
 from airflow.operators.python import task
 from airflow.utils.dates import days_ago
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import billiard as multiprocessing
+
+from common.utils import call_api_get_list, call_api_mutiple_pages, call_multiple_thread
 
 # Variables
 # Clickup
@@ -52,13 +54,14 @@ default_args = {
     max_active_runs=1,
 )
 def Clickup():
+    headers = {
+        "Authorization": f"{API_TOKEN}",
+        "Content-Type": "application/json",
+    }
     ######################################### API ################################################
+
     @task
     def call_api_get_space_ids() -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
         list_space_ids = []
         response = requests.get(CLICKUP_GET_SPACE_IDS,
                                 headers=headers, timeout=None)
@@ -72,10 +75,7 @@ def Clickup():
     @task
     def call_api_get_spaces(list_space_ids: list) -> list:
         list_spaces = []
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
+
         for i in list_space_ids:
             response = requests.get(
                 CLICKUP_GET_SPACES.format(i), headers=headers, timeout=None
@@ -87,129 +87,29 @@ def Clickup():
         return list_spaces
 
     @task
-    def call_api_get_space_details() -> dict:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_space = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
+    def call_api_get_space_details() -> list:
         sql = "select distinct id from [3rd_clickup_list_spaces];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-        if len(df["id"]) > 0:
-            for i in df["id"]:
-                response = requests.get(
-                    CLICKUP_GET_SPACE_DETAILS.format(i),
-                    headers=headers,
-                    timeout=None,
-                )
-                if response.status_code == 200:
-                    list_space.append(response.json())
-                else:
-                    print("Error please check api")
-        return list_space
+        return call_api_get_list(sql=sql, hook_sql=HOOK_MSSQL, url=CLICKUP_GET_SPACE_DETAILS, headers=headers)
 
     @task
-    def call_api_get_folders() -> dict:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_folders = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
+    def call_api_get_folders() -> list:
         sql = "select distinct id from [3rd_clickup_list_spaces];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-        if len(df["id"]) > 0:
-            for i in df["id"]:
-                response = requests.get(
-                    CLICKUP_GET_FOLDERS.format(i),
-                    headers=headers,
-                    timeout=None,
-                )
-                if response.status_code == 200:
-                    list_folders.append(response.json())
-                else:
-                    print("Error please check api")
-        return list_folders
+        return call_api_get_list(sql=sql, hook_sql=HOOK_MSSQL, url=CLICKUP_GET_FOLDERS, headers=headers)
 
     @task
     def call_api_get_folder_details() -> dict:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_folder_details = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
         sql = "select distinct id from [3rd_clickup_folders];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-        if len(df["id"]) > 0:
-            for i in df["id"]:
-                response = requests.get(
-                    CLICKUP_GET_FOLDER_DETAILS.format(i),
-                    headers=headers,
-                    timeout=None,
-                )
-                if response.status_code == 200:
-                    list_folder_details.append(response.json())
-                else:
-                    print("Error please check api")
-        return list_folder_details
+        return call_api_get_list(sql=sql, hook_sql=HOOK_MSSQL, url=CLICKUP_GET_FOLDER_DETAILS, headers=headers)
 
     @task
-    def call_api_get_lists() -> dict:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_lists = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
+    def call_api_get_lists() -> list:
         sql = "select distinct id from [3rd_clickup_folder_details];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-        if len(df["id"]) > 0:
-            for i in df["id"]:
-                response = requests.get(
-                    CLICKUP_GET_LISTS.format(i),
-                    headers=headers,
-                    timeout=None,
-                )
-                if response.status_code == 200:
-                    list_lists.append(response.json())
-                else:
-                    print("Error please check api")
-        return list_lists
+        return call_api_get_list(sql=sql, hook_sql=HOOK_MSSQL, url=CLICKUP_GET_LISTS, headers=headers)
 
     @task
     def call_api_get_list_details() -> dict:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_list_details = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
         sql = "select distinct id from [3rd_clickup_lists];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-        if len(df["id"]) > 0:
-            for i in df["id"]:
-                response = requests.get(
-                    CLICKUP_GET_LIST_DETAILS.format(i),
-                    headers=headers,
-                    timeout=None,
-                )
-                if response.status_code == 200:
-                    list_list_details.append(response.json())
-                else:
-                    print("Error please check api")
-        return list_list_details
+        return call_api_get_list(sql=sql, hook_sql=HOOK_MSSQL, url=CLICKUP_GET_LIST_DETAILS, headers=headers)
 
     def init_date() -> Dict[str, str]:
         current_time = datetime.now()
@@ -218,233 +118,64 @@ def Clickup():
         date_from = int(time_minus_24_hours.timestamp() * 1000)
         return {"date_from": date_from, "date_to": date_to}
 
-    def call_api_get_tasks(space_id, headers):
-        list_tasks = []
+    def call_api_get_tasks(space_id):
         date = init_date()
         params = {
             "page": 0,
             "date_updated_gt": date["date_from"],
             "date_updated_lt": date["date_to"]
         }
+        name_url = 'CLICKUP_GET_TASKS'
+        return call_api_mutiple_pages(headers=headers, params=params, name_url=name_url, url=CLICKUP_GET_TASKS, task_id=space_id)
 
-        while True:
-            print("Calling api CLICKUP_GET_TASKS at page: ", params["page"])
-            response = requests.get(
-                CLICKUP_GET_TASKS.format(space_id), headers=headers, params=params, timeout=None
-            )
-            if response.status_code == 200:
-                data = response.json()
-                list_tasks.append(data)
-                if data["last_page"]:
-                    break
-                params["page"] += 1
-            else:
-                print("Error please check api: ", CLICKUP_GET_TASKS.format(space_id))
-                break
-
-        return list_tasks
-    
     @task
     def call_mutiple_process_tasks():
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_tasks = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
         sql = "select distinct id from [3rd_clickup_space_details];"
-        df = pd.read_sql(sql, sql_conn)
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:  
-                futures = [executor.submit(call_api_get_tasks, space_id, headers) for space_id in df["id"]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_tasks.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_tasks
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_tasks, function_name='call_api_get_tasks')
 
     @task
-    def call_mutiple_process_tasks_by_list_20(list_tasks: list) -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
+    def call_mutiple_process_tasks_by_list_20() -> list:
+        # sql = "select distinct id from [3rd_clickup_list_details] where id in ('901802181276', '901802168382');"
         sql = "select distinct id from [3rd_clickup_list_details];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_tasks, function_name='call_mutiple_process_tasks_by_list_20', range_from=0, range_to=20)
 
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor: 
-                futures = [executor.submit(call_api_get_tasks, list_id, headers) for list_id in df["id"][:20]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_tasks.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_tasks
     @task
-    def call_mutiple_process_tasks_by_list_40(list_tasks: list) -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
+    def call_mutiple_process_tasks_by_list_40() -> list:
+        # sql = "select distinct id from [3rd_clickup_list_details] where id not in ('901802181276', '901802168382');"
         sql = "select distinct id from [3rd_clickup_list_details];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_tasks, function_name='call_mutiple_process_tasks_by_list_40', range_from=20, range_to=None)
 
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor: 
-                futures = [executor.submit(call_api_get_tasks, list_id, headers) for list_id in df["id"][20:]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_tasks.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_tasks
-
-    def call_api_get_task_details(task_id, headers):
-        list_task_details = []
+    def call_api_get_task_details(task_id):
         params = {
             'include_subtasks': 'true',
             "page": 0
         }
-        while True:
-            print(f"Calling api CLICKUP_GET_TASKS_DETAILS for task_id {task_id} at page: ", params["page"])
-            response = requests.get(
-                CLICKUP_GET_TASKS_DETAILS.format(task_id), headers=headers, params=params, timeout=None
-            )
-            if response.status_code == 200:
-                data = response.json()
-                list_task_details.append(data)
-                if data.get("last_page", True):  
-                    break
-                params["page"] += 1
-            else:
-                print("Error please check api: ", CLICKUP_GET_TASKS_DETAILS.format(task_id))
-                break
+        name_url = 'CLICKUP_GET_TASKS_DETAILS'
+        return call_api_mutiple_pages(headers=headers, params=params, name_url=name_url, url=CLICKUP_GET_TASKS_DETAILS, task_id=task_id)
 
-        return list_task_details
-    
     @task
     def call_mutiple_process_task_details_0() -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_task_details = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
-        sql = "select id from [3rd_clickup_tasks] where dtm_Creation_Date >= DATEADD(hour, -1, GETDATE()) order by dtm_Creation_Date desc;"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
+        # where dtm_Creation_Date >= DATEADD(hour, -20, GETDATE()) order by dtm_Creation_Date desc;"
+        sql = "select distinct id from [3rd_clickup_tasks]"
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_task_details, function_name='call_api_get_task_details', range_from=0, range_to=5500)
 
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:  
-                futures = [executor.submit(call_api_get_task_details, task_id, headers) for task_id in df["id"][:5500]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_task_details.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_task_details
-    
     @task
     def call_mutiple_process_task_details_1() -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_task_details = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
-        sql = "select id from [3rd_clickup_tasks] where dtm_Creation_Date >= DATEADD(hour, -1, GETDATE()) order by dtm_Creation_Date desc;"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
+        # where dtm_Creation_Date >= DATEADD(hour, -20, GETDATE()) order by dtm_Creation_Date desc;"
+        sql = "select distinct id from [3rd_clickup_tasks]"
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_task_details, function_name='call_api_get_task_details', range_from=5500, range_to=None)
 
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:  
-                futures = [executor.submit(call_api_get_task_details, task_id, headers) for task_id in df["id"][5500:]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_task_details.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_task_details
-
-    def call_api_get_custom_fields(space_id, headers):
-        list_custom_fields = []
+    def call_api_get_custom_fields(space_id):
         params = {
             "page": 0
         }
+        name_url = 'CLICKUP_GET_CUSTOM_FIELDS'
+        return call_api_mutiple_pages(headers=headers, params=params, name_url=name_url, url=CLICKUP_GET_CUSTOM_FIELDS, task_id=space_id)
 
-        while True:
-            print(f"Calling api CLICKUP_GET_CUSTOM_FIELDS for space_id {space_id} at page: ", params["page"])
-            response = requests.get(
-                CLICKUP_GET_CUSTOM_FIELDS.format(space_id), headers=headers, params=params, timeout=None
-            )
-            if response.status_code == 200:
-                data = response.json()
-                list_custom_fields.append(data)
-                if data.get("last_page", True):  # Assuming `last_page` is true if not present
-                    break
-                params["page"] += 1
-            else:
-                print("Error please check api: ", CLICKUP_GET_CUSTOM_FIELDS.format(space_id))
-                break
-
-        return list_custom_fields
     @task
     def call_mutiple_process_custom_fields() -> list:
-        headers = {
-            "Authorization": f"{API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        list_custom_fields = []
-        hook = mssql.MsSqlHook(HOOK_MSSQL)
-        sql_conn = hook.get_conn()
         sql = "select distinct id from [3rd_clickup_space_details];"
-        df = pd.read_sql(sql, sql_conn)
-        sql_conn.close()
-
-        if len(df["id"]) > 0:
-            num_cpus = multiprocessing.cpu_count()
-            max_workers = num_cpus * 5
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:  # Adjust max_workers as needed
-                futures = [executor.submit(call_api_get_custom_fields, space_id, headers) for space_id in df["id"]]
-
-                for future in as_completed(futures):
-                    try:
-                        list_custom_fields.append(future.result())
-                    except Exception as e:
-                        print(f"Error occurred: {e}")
-
-        return list_custom_fields
+        return call_multiple_thread(hook_sql=HOOK_MSSQL, sql=sql, function=call_api_get_custom_fields, function_name='call_api_get_custom_fields')
 
     ######################################### INSERT DATA ################################################
     @task
@@ -692,10 +423,12 @@ def Clickup():
         df = pd.DataFrame(data)
         values = []
         if len(df) > 0:
-            df["status"] = df["status"].apply(lambda x: json.dumps(x))
-            df["assignee"] = df["assignee"].apply(lambda x: json.dumps(x))
-            df["folder"] = df["folder"].apply(lambda x: json.dumps(x))
-            df["space"] = df["space"].apply(lambda x: json.dumps(x))
+            columns_to_json = [
+                "status", "folder", "assignee", "space"
+            ]
+            for column in columns_to_json:
+                if column in df.columns.tolist():
+                    df[column] = df[column].apply(lambda x: json.dumps(x))
             if 'content' not in df.columns.tolist():
                 df['content'] = None
 
@@ -764,18 +497,19 @@ def Clickup():
         df = pd.DataFrame(list_list_details)
         values = []
         if len(df) > 0:
-            # df["status"] = df["status"].apply(lambda x: json.dumps(x))
-            df["assignee"] = df["assignee"].apply(lambda x: json.dumps(x))
-            df["statuses"] = df["statuses"].apply(lambda x: json.dumps(x))
-            df["folder"] = df["folder"].apply(lambda x: json.dumps(x))
-            df["space"] = df["space"].apply(lambda x: json.dumps(x))
+            columns_to_json = [
+                "folder", "space", "assignee", "statuses"
+            ]
+            for column in columns_to_json:
+                if column in df.columns.tolist():
+                    df[column] = df[column].apply(lambda x: json.dumps(x))
             if 'status' not in df.columns.tolist():
                 df['status'] = None
             else:
                 df["status"] = df["status"].apply(lambda x: json.dumps(x))
             new_col = ['id', 'name', 'deleted', 'orderindex', 'content', 'status',
-                       'priority', 'assignee', 'due_date', 'start_date', 'folder', 
-                       'space', 'inbound_address', 'archived', 'override_statuses', 'statuses', 
+                       'priority', 'assignee', 'due_date', 'start_date', 'folder',
+                       'space', 'inbound_address', 'archived', 'override_statuses', 'statuses',
                        'permission_level']
 
             df = df[new_col]
@@ -835,8 +569,10 @@ def Clickup():
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
         cursor = sql_conn.cursor()
-        filtered_data = [item for item in list_tasks if not (isinstance(item, list) and len(item) > 0 and isinstance(item[0], dict) and item[0].get('tasks') == [] and item[0].get('last_page'))]
-        data = [item for sublist in filtered_data for t in sublist for item in t["tasks"]]
+        filtered_data = [item for item in list_tasks if not (isinstance(item, list) and len(
+            item) > 0 and isinstance(item[0], dict) and item[0].get('tasks') == [] and item[0].get('last_page'))]
+        data = [
+            item for sublist in filtered_data for t in sublist for item in t["tasks"]]
         for i in data:
             sql_del = f"delete from [dbo].[3rd_clickup_tasks] where id = '{i['id']}';"
             cursor.execute(sql_del)
@@ -844,28 +580,15 @@ def Clickup():
         df = pd.DataFrame(data)
         values = []
         if len(df) > 0:
-            df["status"] = df["status"].apply(lambda x: json.dumps(x))
-            df["creator"] = df["creator"].apply(lambda x: json.dumps(x))
-            df["assignees"] = df["assignees"].apply(lambda x: json.dumps(x))
-            df["group_assignees"] = df["group_assignees"].apply(
-                lambda x: json.dumps(x))
-            df["watchers"] = df["watchers"].apply(lambda x: json.dumps(x))
-            df["checklists"] = df["checklists"].apply(lambda x: json.dumps(x))
-            df["tags"] = df["tags"].apply(lambda x: json.dumps(x))
-            df["custom_fields"] = df["custom_fields"].apply(
-                lambda x: json.dumps(x))
+            columns_to_json = [
+                "status", "creator", "assignees", "group_assignees", "watchers",
+                "checklists", "tags", "custom_fields", "dependencies", "linked_tasks",
+                "locations", "sharing", "list", "project", "folder", "space"]
 
-            df["dependencies"] = df["dependencies"].apply(
-                lambda x: json.dumps(x))
-            df["linked_tasks"] = df["linked_tasks"].apply(
-                lambda x: json.dumps(x))
-            df["locations"] = df["locations"].apply(lambda x: json.dumps(x))
+            for column in columns_to_json:
+                if column in df.columns.tolist():
+                    df[column] = df[column].apply(lambda x: json.dumps(x))
 
-            df["sharing"] = df["sharing"].apply(lambda x: json.dumps(x))
-            df["list"] = df["list"].apply(lambda x: json.dumps(x))
-            df["project"] = df["project"].apply(lambda x: json.dumps(x))
-            df["folder"] = df["folder"].apply(lambda x: json.dumps(x))
-            df["space"] = df["space"].apply(lambda x: json.dumps(x))
             if 'subtasks' in df.columns.tolist():
                 df["subtasks"] = df["subtasks"].apply(lambda x: json.dumps(x))
             else:
@@ -977,34 +700,31 @@ def Clickup():
         df = pd.DataFrame(list_data)
         values = []
         if len(df) > 0:
-            df["status"] = df["status"].apply(lambda x: json.dumps(x))
-            df["creator"] = df["creator"].apply(lambda x: json.dumps(x))
-            df["assignees"] = df["assignees"].apply(lambda x: json.dumps(x))
-            df["group_assignees"] = df["group_assignees"].apply(
-                lambda x: json.dumps(x))
-            df["watchers"] = df["watchers"].apply(lambda x: json.dumps(x))
-            df["checklists"] = df["checklists"].apply(lambda x: json.dumps(x))
-            df["tags"] = df["tags"].apply(lambda x: json.dumps(x))
-            df["custom_fields"] = df["custom_fields"].apply(
-                lambda x: json.dumps(x))
-
-            df["dependencies"] = df["dependencies"].apply(
-                lambda x: json.dumps(x))
-            df["linked_tasks"] = df["linked_tasks"].apply(
-                lambda x: json.dumps(x))
-            df["locations"] = df["locations"].apply(lambda x: json.dumps(x))
-
-            df["sharing"] = df["sharing"].apply(lambda x: json.dumps(x))
-            df["list"] = df["list"].apply(lambda x: json.dumps(x))
-            df["project"] = df["project"].apply(lambda x: json.dumps(x))
-            df["folder"] = df["folder"].apply(lambda x: json.dumps(x))
-            df["space"] = df["space"].apply(lambda x: json.dumps(x))
-            df["attachments"] = df["attachments"].apply(
-                lambda x: json.dumps(x))
+            columns_to_json = [
+                "status", "creator", "assignees", "group_assignees", "watchers",
+                "checklists", "tags", "custom_fields", "dependencies", "linked_tasks",
+                "locations", "sharing", "list", "project", "folder", "space", "attachments"
+            ]
+            for column in columns_to_json:
+                if column in df.columns.tolist():
+                    df[column] = df[column].apply(lambda x: json.dumps(x))
             if 'subtasks' in df.columns.tolist():
                 df["subtasks"] = df["subtasks"].apply(lambda x: json.dumps(x))
             else:
                 df["subtasks"] = '[]'
+
+            if 'time_sent' in df.columns.tolist():
+                df["time_sent"] = df["time_sent"].apply(
+                    lambda x: json.dumps(x))
+            else:
+                df["time_sent"] = ''
+
+            new_col = ['id', 'custom_id', 'custom_item_id', 'name', 'text_content', 'description', 'status', 'orderindex', 'date_created', 'date_updated', 'date_closed', 'date_done', 'archived',
+                       'creator', 'assignees', 'group_assignees', 'watchers', 'checklists', 'tags', 'parent', 'priority', 'due_date', 'start_date', 'points', 'time_estimate',
+                       'time_sent', 'custom_fields', 'dependencies', 'linked_tasks', 'locations', 'team_id', 'url', 'sharing', 'permission_level', 'list',
+                       'project', 'folder', 'space', 'subtasks', 'attachments']
+            df = df[new_col]
+            print(df.columns.tolist())
             sql = """
                     INSERT INTO [dbo].[3rd_clickup_task_details](
                         id,
@@ -1108,7 +828,8 @@ def Clickup():
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
         cursor = sql_conn.cursor()
-        data = [item for sublist in list_custom_fields for t in sublist for item in t["fields"]]
+        data = [
+            item for sublist in list_custom_fields for t in sublist for item in t["fields"]]
         for i in data:
             sql_del = f"delete from [dbo].[3rd_clickup_custom_fields] where id = '{i['id']}';"
             cursor.execute(sql_del)
@@ -1147,6 +868,17 @@ def Clickup():
         sql_conn.commit()
         sql_conn.close()
 
+    @task
+    def call_procedure() -> None:
+        hook = mssql.MsSqlHook(HOOK_MSSQL)
+        sql_conn = hook.get_conn()
+        cursor = sql_conn.cursor()
+
+        sql = f"exec [sp_Custom_Fields_List];"
+        cursor.execute(sql)
+        sql_conn.commit()
+        sql_conn.close()
+
     ############ DAG FLOW ############
 
     list_ids = call_api_get_space_ids()
@@ -1169,10 +901,12 @@ def Clickup():
     list_list_details_task = call_api_get_list_details()
     insert_list_details_task = insert_list_details(list_list_details_task)
 
-    list_tasks = call_mutiple_process_tasks() 
-    list_tasks_20 = call_mutiple_process_tasks_by_list_20(list_tasks)
-    list_tasks_40 = call_mutiple_process_tasks_by_list_40(list_tasks_20)
-    insert_tasks_task = insert_tasks(list_tasks_40)
+    list_tasks = call_mutiple_process_tasks()
+    insert_tasks_task = insert_tasks(list_tasks)
+    list_tasks_20 = call_mutiple_process_tasks_by_list_20()
+    insert_tasks_task_20 = insert_tasks(list_tasks)
+    list_tasks_40 = call_mutiple_process_tasks_by_list_40()
+    insert_tasks_task_40 = insert_tasks(list_tasks_40)
 
     list_task_details_task_0 = call_mutiple_process_task_details_0()
     insert_task_details_task_0 = insert_task_details(list_task_details_task_0)
@@ -1182,9 +916,12 @@ def Clickup():
 
     list_custom_fields_task = call_mutiple_process_custom_fields()
     insert_custom_fields_task = insert_custom_fields(list_custom_fields_task)
+    call_procedure_task = call_procedure()
 
     # list_folder_details_task = call_api_get_folder_details()
-    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task  >> list_tasks >> list_tasks_20 >> list_tasks_40 >> insert_tasks_task >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task
+    # list_tasks >> list_tasks_20 >> list_tasks_40 >> insert_tasks_task
+
+    insert_spaces_task >> list_space_details_task >> insert_space_details_task >> list_folders >> insert_folders_task >> list_folder_details_task >> insert_folder_details_task >> list_lists >> insert_lists_task >> list_list_details_task >> insert_list_details_task >> list_tasks >> insert_tasks_task >> list_tasks_20 >> insert_tasks_task_20 >> list_tasks_40 >> insert_tasks_task_40 >> list_task_details_task_0 >> insert_task_details_task_0 >> list_task_details_task_1 >> insert_task_details_task_1 >> list_custom_fields_task >> insert_custom_fields_task >> call_procedure_task
 
 
 dag = Clickup()

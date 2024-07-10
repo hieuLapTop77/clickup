@@ -1,19 +1,23 @@
+import glob
+import logging
 import os
+
 import airflow.providers.microsoft.mssql.hooks.mssql as mssql
 import pandas as pd
 from airflow.decorators import dag, task
 from airflow.models import Variable
 from airflow.operators.python import task
 from airflow.utils.dates import days_ago
-import glob
+
 from common.utils import download_file_drive
+
 # Variables
 
-## Local path
+# Local path
 TEMP_PATH = Variable.get("temp_path")
 
 # Khong co TKNNo, TKCo, TKChietKhau, TKGiaVon, TKKho
-## Conection
+# Conection
 HOOK_MSSQL = Variable.get("mssql_connection")
 
 
@@ -35,7 +39,8 @@ default_args = {
 def Misa_group_products():
     @task
     def remove_files():
-        files = glob.glob(os.path.join(TEMP_PATH, '*'))
+        folder = os.path.join(TEMP_PATH, 'nhomsanpham')
+        files = glob.glob(os.path.join(folder, '*'))
         for i in files:
             try:
                 os.remove(i)
@@ -43,6 +48,7 @@ def Misa_group_products():
             except Exception as e:
                 print(f"Error deleting file {i} : {e}")
     ######################################### API ################################################
+
     @task
     def download_latest_file() -> str:
         folder_name = 'nhomsanpham'
@@ -55,37 +61,39 @@ def Misa_group_products():
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
         cursor = sql_conn.cursor()
-
-        df = pd.read_excel(local_file, index_col=None, engine='openpyxl')
-        for i in range(0,len(df['MÃ HÀNG HOÁ'].tolist()),50):
-            sql_del = f"delete from [dbo].[3rd_misa_group_products] where [Mã hàng hóa] in {tuple(df['MÃ HÀNG HOÁ'][i:i+50].tolist())};"
-            print(sql_del)
-            cursor.execute(sql_del)
+        print(local_file)
+        df = pd.read_excel(local_file, index_col=None,
+                           engine='openpyxl', sheet_name="BẢNG MÃ ĐƯA VÀO CLIKUP")
+        # df = pd.read_excel(, engine='openpyxl',index_col=None, sheet_name=1)
+        print(df.columns)
+        sql_del = f"delete from [dbo].[3rd_misa_group_products] where [ma_hang] in {tuple([str(i) for i in df['MÃ HÀNG HOÁ'].tolist()])};"
+        print(sql_del)
+        cursor.execute(sql_del)
         values = []
         if len(df) > 0:
             sql = """
                     INSERT INTO [dbo].[3rd_misa_group_products](
-                        [Tên hàng hóa]
-                        ,[Mã hàng hóa]
-                        ,[NHÓM HÀNG HOÁ B1]
-                        ,[NHÓM HÀNG HOÁ B2]
+                        [ma_hang]
+                        ,[ten_hang]
+                        ,[nhan_hang]
+                        ,[nhom_nhan_hang]
                         ,[dtm_creation_date])
                     VALUES(%s, %s, %s, %s, getdate())
                 """
             for _index, row in df.iterrows():
                 value = (
-                            str(row[0]),
-                            str(row[1]),
-                            str(row[2]),
-                            str(row[3]),
+                    str(row[0]),
+                    str(row[1]),
+                    str(row[2]),
+                    str(row[3]),
                 )
                 values.append(value)
             cursor.executemany(sql, values)
 
-        print(f"Inserted {len(values)} rows in database with {df.shape[0]} rows")
+        print(
+            f"Inserted {len(values)} rows in database with {df.shape[0]} rows")
         sql_conn.commit()
         sql_conn.close()
-
 
     ############ DAG FLOW ############
 
