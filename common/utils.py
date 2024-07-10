@@ -1,3 +1,4 @@
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List
@@ -112,3 +113,9 @@ def call_multiple_thread(hook_sql: str, sql: str, function: Callable[[int], any]
                     print(f"Error at function {function_name}: with error {e}")
 
     return list_results
+
+
+def handle_df(df: str):
+    data = json.loads(df)
+    df = pd.DataFrame.from_dict(data, orient='columns')
+    return df

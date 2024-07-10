@@ -12,6 +12,8 @@ from airflow.models import Variable
 from airflow.operators.python import task
 from airflow.utils.dates import days_ago
 
+from common.utils import handle_df
+
 # Variables
 TEMP_PATH = Variable.get("temp_path")
 CLICKUP_DELETE_TASK = Variable.get("clickup_delete_task")
@@ -91,7 +93,7 @@ def Jotform_Clickup():
         else:
             print("Error please check api")
 
-    def call_tasks() -> Union[pd.DataFrame, None]:
+    def call_tasks() -> Union[str, None]:
         params = {
             "order_by": "created",
             "statuses[]": "đơn đặt hàng"  # sua theo status tren clickup
@@ -99,7 +101,7 @@ def Jotform_Clickup():
         res = requests.get(CLICKUP_GET_TASKS.format(
             ID_LIST_DEFAULT), params=params, headers=HEADERS, timeout=None)
         if res.status_code == 200:
-            return pd.DataFrame(res.json().get('tasks', []))
+            return pd.DataFrame(res.json().get('tasks', [])).to_json()
         else:
             print("API Error")
             return None
@@ -179,7 +181,8 @@ def Jotform_Clickup():
 
     @task
     def delete_tasks() -> None:
-        df_tasks = call_tasks()
+        df = call_tasks()
+        df_tasks = handle_df(df)
         if df_tasks is not None:
             hook = mssql.MsSqlHook(HOOK_MSSQL)
             sql_conn = hook.get_conn()

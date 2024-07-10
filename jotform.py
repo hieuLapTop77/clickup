@@ -10,6 +10,8 @@ from airflow.models import Variable
 from airflow.operators.python import task
 from airflow.utils.dates import days_ago
 
+from common.utils import handle_df
+
 # Variables
 # Jotform
 # JOTFORM_GET_USER = Variable.get("jotform_get_user")
@@ -80,13 +82,12 @@ def Jotform():
         return forms
 
     @task
-    def call_api_get_user_submissions() -> Union[pd.DataFrame, None]:
+    def call_api_get_user_submissions() -> Union[str, None]:
         params = {
             "apiKey": JOTFORM_API_KEY,
             "orderby": "created_at",
             "limit": 1000
         }
-        filtered_df = None
         response = requests.get(
             JOTFORM_GET_USER_SUBMISSIONS, params=params, timeout=None
         )
@@ -95,10 +96,10 @@ def Jotform():
             df['created_at'] = pd.to_datetime(df['created_at'])
             yesterday = pd.to_datetime(
                 datetime.today().strftime('%Y-%m-%d')) - timedelta(days=1)
-            filtered_df = df[df['created_at'].dt.date >= yesterday.date()]
+            return df[df['created_at'].dt.date >= yesterday.date()].to_json()
         else:
             print("Error please check api")
-        return filtered_df
+            return None
 
     @task
     def insert_forms(forms) -> None:
@@ -154,11 +155,11 @@ def Jotform():
             print("Response not correct format: ", forms)
 
     @task
-    def insert_form_submissions(df) -> None:
+    def insert_form_submissions(df: str) -> None:
         hook = mssql.MsSqlHook(HOOK_MSSQL)
         sql_conn = hook.get_conn()
         cursor = sql_conn.cursor()
-        # print(df)
+        df = handle_df(df)
         if df is not None:
             sql_del = f"delete from [dbo].[3rd_jotform_form_submissions] where id in {tuple(df['id'].tolist())};"
             print(sql_del)
